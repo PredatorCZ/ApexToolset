@@ -1,0 +1,3 @@
+[submodule "3rd_party/ApexLib"]
+	path = 3rd_party/ApexLib
+	url = https://github.com/PredatorCZ/ApexLib.git
