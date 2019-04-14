@@ -27,12 +27,38 @@ REFLECTOR_START_WNAMES(ddscConvert, Convert_DDS_to_legacy, Force_unconvetional_l
 	ATX_level1_max_resolution, ATX_level2_max_resolution, No_Tiling);
 
 static int levelResolutions[] = { 0x8000, 0x8000, 0x8000, 0x8000, 0x8000 };
+static const TCHAR *help = L"Converts between AVTX and DDS formats.\n\
+If a DDS is being converted to AVTX, make sure that DDS is properly encoded and have generated full mipmap chain.\n\n\
+Settings (.config file):\n\
+  Convert_DDS_to_legacy: \n\
+        Tries to convert AVTX into legacy (DX9) DDS format.\n\
+  Force_unconvetional_legacy_formats:\n\
+        Will try to convert some matching formats from DX10 to DX9,\n\
+        for example: RG88 to AL88.\n\
+  Generate_Log: \n\
+        Will generate text log of console output next to application location.\n\n\
+Following settings are for AVTX creation:\n\
+  Number_of_ATX_levels: \n\
+        Number of streamed mipmaps files. \n\
+        Titles like JC4 will use 2, Generation Zero uses 3. \n\
+        0 means that all mip maps will be stored in one file.\n\
+  Use_HMDDSC:\n\
+        Use for titles like JC3 or the Hunter COtW. \n\
+        It will create one .hmddsc file instead of .atx.\n\
+  ATX_levelN_max_resolution: \n\
+        Maximum texture resolution for said level. \n\
+        Level 0 is main ddsc file, level 1 is atx1 or hmddsc file, \n\
+        level 2 is for atx2 and so on.\n\
+  No_Tiling: \n\
+        Texture should not tile. Should be used for object baked textures.\n\n\
+Press any key to close.";
 
 void FilehandleITFC(const _TCHAR *fle)
 {
 	printline("Loading file: ", << fle);
 
-	BinReader rd(fle);
+	TSTRING filepath = fle;
+	BinReader rd(filepath);
 
 	if (!rd.IsValid())
 	{
@@ -303,8 +329,17 @@ int _tmain(int argc, _TCHAR *argv[])
 	
 	if (argc < 2)
 	{
-		printerror("Insufficient argument count, expected at aleast 1");
+		printerror("Insufficient argument count, expected at aleast 1.\n");
+		printer << help >> 1;
+		getchar();
 		return 1;
+	}
+	
+	if (argv[1][1] == '?' || argv[1][1] == 'h')
+	{
+		printer << help >> 1;
+		getchar();
+		return 0;
 	}
 
 	TFileInfo configInfo(*argv);
