@@ -1,5 +1,19 @@
-// ddscConvert.cpp : This file contains the 'main' function. Program execution begins and ends there.
-//
+/*  ddscConvert
+	Copyright(C) 2019 Lukas Cone
+
+	This program is free software : you can redistribute it and / or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this program.If not, see <https://www.gnu.org/licenses/>.
+*/
 
 #include <thread>
 #include <mutex>
@@ -8,6 +22,7 @@
 #include "datas/binreader.hpp"
 #include "datas/SettingsManager.hpp"
 #include "datas/fileinfo.hpp"
+#include "pugixml.hpp"
 
 static struct ddscConvert : SettingsManager
 {
@@ -27,7 +42,7 @@ REFLECTOR_START_WNAMES(ddscConvert, Convert_DDS_to_legacy, Force_unconvetional_l
 	ATX_level1_max_resolution, ATX_level2_max_resolution, No_Tiling);
 
 static int levelResolutions[] = { 0x8000, 0x8000, 0x8000, 0x8000, 0x8000 };
-static const TCHAR *help = L"Converts between AVTX and DDS formats.\n\
+static const char help[] = "\nConverts between AVTX and DDS formats.\n\
 If a DDS is being converted to AVTX, make sure that DDS is properly encoded and have generated full mipmap chain.\n\n\
 Settings (.config file):\n\
   Convert_DDS_to_legacy: \n\
@@ -50,15 +65,16 @@ Following settings are for AVTX creation:\n\
         Level 0 is main ddsc file, level 1 is atx1 or hmddsc file, \n\
         level 2 is for atx2 and so on.\n\
   No_Tiling: \n\
-        Texture should not tile. Should be used for object baked textures.\n\n\
-Press any key to close.";
+        Texture should not tile. Should be used for object baked textures.\n\t";
 
-void FilehandleITFC(const _TCHAR *fle)
+static const char pressKeyCont[] = "\nPress any key to close.";
+
+void FilehandleITFC(const TCHAR *fle)
 {
 	printline("Loading file: ", << fle);
 
 	TSTRING filepath = fle;
-	BinReader rd(filepath);
+	BinReader rd(fle);
 
 	if (!rd.IsValid())
 	{
@@ -74,7 +90,7 @@ void FilehandleITFC(const _TCHAR *fle)
 	{
 		printline("Converting AVTX -> DDS.");
 		AVTX tx;
-		tx.Load(fle, rd);
+		tx.Load(fle, &rd);
 
 		TFileInfo fleInfo = fle;
 		std::ofstream ofs(fleInfo.GetPath() + fleInfo.GetFileName() + _T(".dds"), std::ios::out | std::ios::binary);
@@ -325,28 +341,35 @@ int _tmain(int argc, _TCHAR *argv[])
 {
 	setlocale(LC_ALL, "");
 	printer.AddPrinterFunction(wprintf);
+
 	printline("Apex AVTX Converter by Lukas Cone in 2019.\nSimply drag'n'drop files into application or use as ddscConvert file1 file2 ...\n");
 	
 	if (argc < 2)
 	{
 		printerror("Insufficient argument count, expected at aleast 1.\n");
-		printer << help >> 1;
+		printer << help << pressKeyCont >> 1;
 		getchar();
 		return 1;
 	}
 	
 	if (argv[1][1] == '?' || argv[1][1] == 'h')
 	{
-		printer << help >> 1;
+		printer << help << pressKeyCont >> 1;
 		getchar();
 		return 0;
 	}
 
 	TFileInfo configInfo(*argv);
 	const TSTRING configName = configInfo.GetPath() + configInfo.GetFileName() + _T(".config");
-
+	
 	settings.FromXML(configName);
-	settings.ToXML(configName);
+
+	pugi::xml_document doc = {};
+	pugi::xml_node mainNode(settings.ToXML(doc));
+	mainNode.prepend_child(pugi::xml_node_type::node_comment).set_value(help);
+
+	doc.save_file(configName.c_str(), "\t", pugi::format_write_bom | pugi::format_indent);
+
 
 	if (settings.Generate_Log)
 		settings.CreateLog(configInfo.GetPath() + configInfo.GetFileName());
