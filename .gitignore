@@ -33,3 +33,5 @@
 ObjDump/*
 .vs/*
 bin/*
+*.aps
+*.user
