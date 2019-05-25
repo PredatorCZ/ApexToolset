@@ -36,7 +36,22 @@ If a DDS is being converted to AVTX, make sure that DDS is properly encoded and 
         Level 0 is main ddsc file, level 1 is atx1 or hmddsc file, level 2 is for atx2 and so on.
 - ***No_Tiling:***\
         Texture should not tile. Should be used for object baked textures.
-        
+ 
+ ## R2SmallArchive
+Extracts .bl, .ee, .nl, .fl archives from RAGE 2. This app uses multithreading, so you can process multiple files at the same time. Best way is to drag'n'drop files onto app.
+For this reason a .config file is placed alongside executable file, since app itself only takes file paths as arguments.
+A .config file is in XML format. \
+***Please do not create any spaces/tabs/uppercase letters/commas as decimal points within setting field. \
+Program must run at least once to generate .config file.***
+ 
+### Settings (.config file):
+- ***Generate_Log:***\
+        Will generate text log of console output next to application location. 
+- ***sarc0_gtoc_file_path:***\
+        A full file path to sarc.0.gtoc file. (Inside game10 achive)
+ - ***expentities_gtoc_file_path:***\
+        A full file path to expentities.gtoc file. (Inside game10 achive)       
+ 
 ## [Latest Release](https://github.com/PredatorCZ/ApexToolset/releases)
 
 ## License
