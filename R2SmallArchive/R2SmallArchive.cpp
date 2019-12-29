@@ -1,285 +1,256 @@
-/*  R2SmallArchive
-	Copyright(C) 2019 Lukas Cone
+/*      R2SmallArchive
+        Copyright(C) 2019 Lukas Cone
 
-	This program is free software : you can redistribute it and / or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation, either version 3 of the License, or
-	(at your option) any later version.
+        This program is free software : you can redistribute it and / or modify
+        it under the terms of the GNU General Public License as published by
+        the Free Software Foundation, either version 3 of the License, or
+        (at your option) any later version.
 
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
-	GNU General Public License for more details.
+        This program is distributed in the hope that it will be useful,
+        but WITHOUT ANY WARRANTY; without even the implied warranty of
+        MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
+        GNU General Public License for more details.
 
-	You should have received a copy of the GNU General Public License
-	along with this program.If not, see <https://www.gnu.org/licenses/>.
+        You should have received a copy of the GNU General Public License
+        along with this program.If not, see <https://www.gnu.org/licenses/>.
 */
 
-#include <thread>
-#include <mutex>
-#include "datas/binreader.hpp"
+#include "datas/MultiThread.hpp"
 #include "datas/SettingsManager.hpp"
+#include "datas/binreader.hpp"
 #include "datas/fileinfo.hpp"
+#include "project.h"
 #include "pugixml.hpp"
 
-static struct R2SmallArchive : SettingsManager
-{
-	DECLARE_REFLECTOR;
-	bool Generate_Log = false;
-	std::string sarc0_gtoc_file_path = "Path into sarc.0.gtoc",
-		expentities_gtoc_file_path = "Path into expentities.gtoc";
-}settings;
+static struct R2SmallArchive : SettingsManager {
+  DECLARE_REFLECTOR;
+  bool Generate_Log = false;
+  std::string sarc0_gtoc_file_path = "Path into sarc.0.gtoc",
+              expentities_gtoc_file_path = "Path into expentities.gtoc";
+} settings;
 
-REFLECTOR_START_WNAMES(R2SmallArchive, sarc0_gtoc_file_path, expentities_gtoc_file_path, Generate_Log);
+REFLECTOR_START_WNAMES(R2SmallArchive, sarc0_gtoc_file_path,
+                       expentities_gtoc_file_path, Generate_Log);
 
-struct GTOCFile
-{
-	uint hash1,
-		hash2;
-	int fileSize;
-	char fileName[1];
+struct GTOCFile {
+  uint hash1, hash2;
+  int fileSize;
+  char fileName[1];
 };
 
-struct GTOCAddtionalFileEntry
-{
-	int fileEntryOffset,
-	fileOffset;
+struct GTOCFileEntry {
+  int fileEntryOffset, fileOffset;
 
-	ES_INLINE const GTOCFile *GetEntry() const
-	{
-		return reinterpret_cast<const GTOCFile *>(reinterpret_cast<const char *>(this) + fileEntryOffset);
-	}
+  const GTOCFile *Entry() const {
+    return reinterpret_cast<const GTOCFile *>(
+        reinterpret_cast<const char *>(this) + fileEntryOffset);
+  }
 };
 
-struct GTOCEntry
-{
-	uint hash1,
-		hash2;
-	int numFiles;
-	uint firstEntryOffset;
-	uint count01;
+struct GTOCEntry {
+  uint hash1, hash2;
+  int numFiles;
 
-	ES_INLINE const GTOCAddtionalFileEntry *GetAdditionalFiles() const
-	{
-		return reinterpret_cast<const GTOCAddtionalFileEntry *>(this + 1);
-	}
+  const GTOCFileEntry *Files() const {
+    return reinterpret_cast<const GTOCFileEntry *>(this + 1);
+  }
 
-	ES_INLINE uint GetFileOffset(int id) const
-	{
-		if (id == 1)
-			return 4;
-		else
-			return (GetAdditionalFiles() + id - 1)->fileOffset;
-	}
+  void mkdirs(const TSTRING &inFilepath) const {
+    for (int f = 0; f < numFiles; f++) {
+      const char *cfle = Files()[f].Entry()->fileName;
+      TSTRING filePath = esStringConvert<TCHAR>(cfle);
 
-	ES_INLINE const GTOCFile *GetFile(int id) const
-	{
-		if (id == 1)
-			return reinterpret_cast<const GTOCFile *>(reinterpret_cast<const char *>(this) + offsetof(GTOCEntry, firstEntryOffset) + firstEntryOffset);
-		else
-			return (GetAdditionalFiles() + id - 1)->GetEntry();
-	}
-
-	void mkdirs(const TSTRING &inFilepath) const
-	{
-		for (int f = 0; f < numFiles; f++)
-		{
-			const char *cfle = GetFile(f)->fileName;
-			TSTRING filePath = esStringConvert<TCHAR>(cfle);
-
-			for (size_t s = 0; s < filePath.length(); s++)
-				if (filePath[s] == '\\' || filePath[s] == '/')
-				{
-					TSTRING genpath = inFilepath;
-					genpath.append(filePath.substr(0, s));
-					_tmkdir(genpath.c_str());
-				}
-		}
-	}
+      for (size_t s = 0; s < filePath.length(); s++)
+        if (filePath[s] == '\\' || filePath[s] == '/') {
+          TSTRING genpath = inFilepath;
+          genpath.append(filePath.substr(0, s));
+          _tmkdir(genpath.c_str());
+        }
+    }
+  }
 };
 
-struct GTOC
-{
-	static const int gtocID = CompileFourCC("GT0C");
+struct GTOC {
+  typedef std::unique_ptr<GTOC> Ptr;
+  static const int gtocID = CompileFourCC("GT0C");
 
-	char *masterBuffer;
-	std::vector<GTOCEntry *> archives;
+  char *masterBuffer;
+  std::vector<GTOCEntry *> archives;
 
-	GTOC() : masterBuffer(nullptr) {}
-	~GTOC()
-	{
-		if (masterBuffer)
-			free(masterBuffer);
-	}
+  GTOC() : masterBuffer(nullptr) {}
+  ~GTOC() {
+    if (masterBuffer)
+      free(masterBuffer);
+  }
 
-	int Load(BinReader *rd)
-	{
-		int ID;
-		rd->Read(ID);
+  int Load(BinReader *rd) {
+    int ID;
+    rd->Read(ID);
 
-		if (ID != gtocID)
-		{
-			printerror("Invalid file format, expected gtoc.");
-			return 1;
-		}
+    if (ID != gtocID) {
+      printerror("Invalid file format, expected gtoc.");
+      return 1;
+    }
 
-		int numArchives;
-		rd->Read(numArchives);
-		archives.resize(numArchives);
-		const size_t fleSize = rd->GetSize() - 8;
-		masterBuffer = static_cast<char *>(malloc(fleSize));
-		rd->ReadBuffer(masterBuffer, fleSize);
-		char *masterCopy = masterBuffer;
+    int numArchives;
+    rd->Read(numArchives);
+    archives.resize(numArchives);
+    const size_t fleSize = rd->GetSize() - 8;
+    masterBuffer = static_cast<char *>(malloc(fleSize));
+    rd->ReadBuffer(masterBuffer, fleSize);
+    char *masterCopy = masterBuffer;
 
-		for (auto &a : archives)
-		{
-			a = reinterpret_cast<GTOCEntry *>(masterCopy);
-			masterCopy += static_cast<size_t>(a->numFiles - 1) * sizeof(GTOCAddtionalFileEntry) + sizeof(GTOCEntry);
-		}
+    for (auto &a : archives) {
+      a = reinterpret_cast<GTOCEntry *>(masterCopy);
+      masterCopy += sizeof(GTOCEntry) + a->numFiles * sizeof(GTOCFileEntry);
+    }
 
-		return 0;
-	}
+    return 0;
+  }
 
-	GTOCEntry *FindEntry(uint hash) const
-	{
-		for (auto &a : archives)
-			if (a->hash2 == hash)
-				return a;
+  GTOCEntry *FindEntry(uint hash) const {
+    for (auto &a : archives)
+      if (a->hash2 == hash)
+        return a;
 
-		return nullptr;
-	}
+    return nullptr;
+  }
 };
 
-GTOC *LoadGTOC(const std::string &path)
-{
-	TSTRING filepath = esStringConvert<TCHAR>(path.c_str());
-	BinReader rd(filepath);
+GTOC::Ptr LoadGTOC(const std::string &path) {
+  TSTRING filepath = esStringConvert<TCHAR>(path.c_str());
+  BinReader rd(filepath);
 
-	if (!rd.IsValid())
-	{
-		printerror("Cannot open gtoc file.");
-		return nullptr;
-	}
+  if (!rd.IsValid()) {
+    printerror("Cannot open gtoc file.");
+    return nullptr;
+  }
 
-	GTOC *gtoc = new GTOC();
-	if (gtoc->Load(&rd))
-	{
-		delete gtoc;
-		return nullptr;
-	}
+  GTOC *gtoc = new GTOC();
+  if (gtoc->Load(&rd)) {
+    delete gtoc;
+    return nullptr;
+  }
 
-	return gtoc;
+  return GTOC::Ptr(gtoc);
 }
 
-void FilehandleITFC(const TCHAR *fle, const GTOC **globalTOC)
-{
-	printline("Loading file: ", << fle);
+void FilehandleITFC(const TCHAR *fle, GTOC::Ptr *globalTOC) {
+  printline("Loading file: ", << fle);
 
-	TSTRING filepath = fle;
-	BinReader rd(fle);
+  TSTRING filepath = fle;
+  BinReader rd(fle);
 
-	if (!rd.IsValid())
-	{
-		printerror("Cannot open file.");
-		return;
-	}
+  if (!rd.IsValid()) {
+    printerror("Cannot open file.");
+    return;
+  }
 
-	const size_t sarcSize = rd.GetSize();
-	char *dataBuffer = static_cast<char *>(malloc(sarcSize));
-	rd.ReadBuffer(dataBuffer, sarcSize);
-	
-	const GTOCEntry *cEntry = (*globalTOC)->FindEntry(*reinterpret_cast<uint *>(dataBuffer));
+  const size_t sarcSize = rd.GetSize();
+  char *dataBuffer = static_cast<char *>(malloc(sarcSize));
+  rd.ReadBuffer(dataBuffer, sarcSize);
 
-	if (!cEntry)
-		cEntry = (*(globalTOC + 1))->FindEntry(*reinterpret_cast<uint *>(dataBuffer));
+  const GTOCEntry *cEntry =
+      (*globalTOC)->FindEntry(*reinterpret_cast<uint *>(dataBuffer));
 
-	if (!cEntry)
-	{
-		printerror("Cannot find file in global table.");
-		return;
-	}
+  if (!cEntry)
+    cEntry =
+        (*(globalTOC + 1))->FindEntry(*reinterpret_cast<uint *>(dataBuffer));
 
-	TFileInfo finfo(filepath);
-	cEntry->mkdirs(finfo.GetPath());
-	const int numFiles = cEntry->numFiles;
-	
-	for (int f = 0; f < numFiles; f++)
-	{
-		const GTOCFile *cFile = cEntry->GetFile(f);
+  if (!cEntry) {
+    printerror("Cannot find file in global table.");
+    return;
+  }
 
-		if (cFile->fileSize < 1)
-			continue;
+  TFileInfo finfo(filepath);
+  cEntry->mkdirs(finfo.GetPath());
+  const int numFiles = cEntry->numFiles;
 
-		TSTRING cFilePath = finfo.GetPath() + esStringConvert<TCHAR>(cFile->fileName);
-		std::ofstream fileOut(cFilePath, std::ios_base::binary | std::ios_base::out);
-		
-		if (fileOut.fail())
-		{
-			printerror("Couldn't create file: ", << cFilePath);
-			continue;
-		}
+  for (int f = 0; f < numFiles; f++) {
+    const GTOCFileEntry &cFile = cEntry->Files()[f];
+    const GTOCFile *cFileName = cFile.Entry();
 
-		fileOut.write(dataBuffer + cEntry->GetFileOffset(f), cFile->fileSize);		
-		fileOut.close();
-	}
+    if (cFileName->fileSize < 1 || cFile.fileOffset < 4)
+      continue;
 
-	free(dataBuffer);
-	return;
+    TSTRING cFilePath =
+        finfo.GetPath() + esStringConvert<TCHAR>(cFileName->fileName);
+    std::ofstream fileOut(cFilePath,
+                          std::ios_base::binary | std::ios_base::out);
+
+    if (fileOut.fail()) {
+      printerror("Couldn't create file: ", << cFilePath);
+      continue;
+    }
+
+    fileOut.write(dataBuffer + cFile.fileOffset, cFileName->fileSize);
+    fileOut.close();
+  }
+
+  free(dataBuffer);
+
+  printer << numFiles << " files extracted." >> 1;
+  return;
 }
 
-int _tmain(int argc, _TCHAR *argv[])
-{
-	setlocale(LC_ALL, "");
-	printer.AddPrinterFunction(wprintf);
+struct SarcQueueTraits {
+  int queue;
+  int queueEnd;
+  TCHAR **files;
+  GTOC::Ptr *mainGTOC;
+  typedef void return_type;
 
-	printline("Rage 2 Small Archive Extractor by Lukas Cone in 2019.\nSimply drag'n'drop files into application or use as R2SmallArchive file1 file2 ...\n");
+  return_type RetreiveItem() { FilehandleITFC(files[queue], mainGTOC); }
 
-	TFileInfo configInfo(*argv);
-	const TSTRING configName = configInfo.GetPath() + configInfo.GetFileName() + _T(".config");
+  operator bool() { return queue < queueEnd; }
+  void operator++(int) { queue++; }
+  int NumQueues() const { return queueEnd - 1; }
+};
 
-	settings.FromXML(configName);
+int _tmain(int argc, _TCHAR *argv[]) {
+  setlocale(LC_ALL, "");
+  printer.AddPrinterFunction(wprintf);
 
-	pugi::xml_document doc = {};
-	settings.ToXML(doc);
-	doc.save_file(configName.c_str(), "\t", pugi::format_write_bom | pugi::format_indent);
+  printline(R2SmallArchive_DESC
+            " V" R2SmallArchive_VERSION "\n" R2SmallArchive_COPYRIGHT
+            "\nSimply drag'n'drop files into "
+            "application or use as " R2SmallArchive_PRODUCT_NAME
+            " file1 file2 ...\n");
 
-	if (argc < 2)
-	{
-		printerror("Insufficient argument count, expected at aleast 1.\n");
-		return 1;
-	}
+  TFileInfo configInfo(*argv);
+  const TSTRING configName =
+      configInfo.GetPath() + configInfo.GetFileName() + _T(".config");
 
-	if (settings.Generate_Log)
-		settings.CreateLog(configInfo.GetPath() + configInfo.GetFileName());
+  settings.FromXML(configName);
 
-	const GTOC *mainGTOC[2] = { LoadGTOC(settings.sarc0_gtoc_file_path), LoadGTOC(settings.expentities_gtoc_file_path) };
+  pugi::xml_document doc = {};
+  settings.ToXML(doc);
+  doc.save_file(configName.c_str(), "\t",
+                pugi::format_write_bom | pugi::format_indent);
 
-	for (auto &t : mainGTOC)
-		if (!t)
-			return 2;
+  if (argc < 2) {
+    printerror("Insufficient argument count, expected at least 1.\n");
+    return 1;
+  }
 
-	const int nthreads = std::thread::hardware_concurrency();
-	std::vector<std::thread> threadedfuncs(nthreads);
+  if (settings.Generate_Log)
+    settings.CreateLog(configInfo.GetPath() + configInfo.GetFileName());
 
-	printer.PrintThreadID(true);
+  GTOC::Ptr mainGTOC[2] = {LoadGTOC(settings.sarc0_gtoc_file_path),
+                           LoadGTOC(settings.expentities_gtoc_file_path)};
 
-	for (int a = 1; a < argc; a += nthreads)
-	{
-		for (int t = 0; t < nthreads; t++)
-		{
-			if (a + t > argc - 1) break;
-			threadedfuncs[t] = std::thread(FilehandleITFC, argv[a + t], mainGTOC);
-		}
+  for (auto &t : mainGTOC)
+    if (!t)
+      return 2;
 
-		for (int t = 0; t < nthreads; t++)
-		{
-			if (a + t > argc - 1) break;
-			threadedfuncs[t].join();
-		}
-	}
+  SarcQueueTraits sarQue;
+  sarQue.files = argv;
+  sarQue.queue = 1;
+  sarQue.queueEnd = argc;
+  sarQue.mainGTOC = mainGTOC;
 
-	for (auto &t : mainGTOC)
-		delete t;
+  printer.PrintThreadID(true);
+  RunThreadedQueue(sarQue);
 
-	return 0;
+  return 0;
 }
