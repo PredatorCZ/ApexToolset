@@ -4,8 +4,9 @@ Apex Toolset is a collection of modding tools for Apex Engine titles.
 
 ## ddscConvert
 
-Converts between AVTX and DDS formats. This app uses multithreading, so you can process multiple files at the same time. Best way is to drag'n'drop files onto app.
-For this reason a .config file is placed alongside executable file, since app itself only takes file paths as arguments.
+Converts between AVTX and DDS formats.\
+This app uses multithreading, so you can process multiple files at the same time. Best way is to drag'n'drop files or even folders onto app (When folder is dropped, it will be recursively scanned).\
+For this reason a .config file is placed alongside executable file, since app itself only takes file paths as arguments.\
 A .config file is in XML format. \
 ***Please do not create any spaces/tabs/uppercase letters/commas as decimal points within setting field. \
 Program must run at least once to generate .config file.\
@@ -27,6 +28,13 @@ If a DDS is being converted to AVTX, make sure that DDS is properly encoded and 
         Will try to convert some matching formats from DX10 to DX9, for example: RG88 to AL88.
 - ***Generate_Log:***\
         Will generate text log of console output next to application location.
+- ***Extract_largest_mipmap:***\
+        Will try to extract only highest mipmap.\
+        Texture musn't be converted back afterwards, unless you regenerate mipmaps!\
+        This setting does not apply, if texture have arrays or is a cubemap!
+- ***Folder_scan_DDSC_only:***\
+        When providing input parameter as folder, program will scan only DDSC files.\
+        When false, program will scan for DDS files only.
 
 ### Following settings are for AVTX creation
 
