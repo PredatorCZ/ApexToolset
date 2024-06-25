@@ -1,3 +1,7 @@
+> [!IMPORTANT]
+> This repo has been archived, it contains out of date toolset.\
+> Possible future development/releases will be available in [ApexToolset](https://github.com/PredatorCZ/ApexLib/master/toolset) subproject for [ApexLib](https://github.com/PredatorCZ/ApexLib).
+
 # ApexToolset
 
 Apex Toolset is a collection of modding tools for Apex Engine titles.
